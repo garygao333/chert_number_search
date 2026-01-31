@@ -30,6 +30,37 @@ async function foragerFetch(endpoint: string, options: ForagerApiOptions = {}) {
   return response.json();
 }
 
+// Lookup industry ID by name
+async function lookupIndustryId(industryName: string): Promise<number | null> {
+  try {
+    const url = `${FORAGER_API_URL}/api/${FORAGER_ACCOUNT_ID}/datastorage/industries/?q=${encodeURIComponent(industryName)}`;
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-KEY': FORAGER_API_KEY,
+      },
+    });
+
+    if (!response.ok) {
+      console.error('Industry lookup failed:', response.status);
+      return null;
+    }
+
+    const data = await response.json();
+    // Return the first matching industry ID
+    if (data.results && data.results.length > 0) {
+      console.log('Found industry:', data.results[0]);
+      return data.results[0].id;
+    }
+    return null;
+  } catch (error) {
+    console.error('Industry lookup error:', error);
+    return null;
+  }
+}
+
 export async function searchPeople(
   filters: SearchFilters,
   page: number = 1,
@@ -41,17 +72,23 @@ export async function searchPeople(
     page: page,
   };
 
-  // Person filters
+  // Person filters - lookup industry ID if provided
   if (filters.personIndustry) {
-    searchParams.person_industries = [filters.personIndustry];
+    const industryId = await lookupIndustryId(filters.personIndustry);
+    if (industryId) {
+      searchParams.person_industries = [industryId];
+    }
   }
   if (filters.personLocation) {
     searchParams.person_locations = [filters.personLocation];
   }
 
-  // Company/Organization filters
+  // Company/Organization filters - lookup industry ID if provided
   if (filters.companyIndustry) {
-    searchParams.org_industries = [filters.companyIndustry];
+    const industryId = await lookupIndustryId(filters.companyIndustry);
+    if (industryId) {
+      searchParams.org_industries = [industryId];
+    }
   }
   if (filters.companyLocation) {
     searchParams.org_locations = [filters.companyLocation];
