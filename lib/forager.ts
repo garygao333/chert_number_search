@@ -67,7 +67,8 @@ export async function searchPeople(
     searchParams.org_locations = [filters.companyLocation];
   }
   if (filters.companyKeywords) {
-    searchParams.org_name = sanitizeSearchString(filters.companyKeywords);
+    // Search in role title for keywords (more effective than org_name)
+    searchParams.role_title = sanitizeSearchString(filters.companyKeywords);
   }
 
   try {

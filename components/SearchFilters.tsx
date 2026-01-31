@@ -107,10 +107,10 @@ export default function SearchFilters({
           </div>
 
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Keywords</label>
+            <label className="block text-xs text-gray-500 mb-1">Role Title Keywords</label>
             <input
               type="text"
-              placeholder="e.g., Google, Startup"
+              placeholder="e.g., Technical, Manager"
               value={filters.companyKeywords || ''}
               onChange={(e) => handleInputChange('companyKeywords', e.target.value)}
               onKeyDown={handleKeyDown}
