@@ -102,6 +102,9 @@ export async function searchPeople(
       organization?: ApiOrganization;
     }
 
+    // Log raw search results to debug person IDs
+    console.log('Raw search results sample:', JSON.stringify(data.search_results?.slice(0, 2), null, 2));
+
     // Use combination of role ID + person ID + index for uniqueness
     const results: PersonSearchResult[] = (data.search_results || []).map((item: ApiResult, index: number) => ({
       person: {
@@ -135,33 +138,65 @@ export async function searchPeople(
   }
 }
 
-export async function enrichPerson(personId: string): Promise<EnrichedPerson | null> {
+// Separate function to lookup phone numbers via the contacts endpoint
+async function lookupPhoneNumbers(personId: number): Promise<{ phone_number: string; type?: string }[]> {
   try {
-    const data = await foragerFetch('/person_detail_lookup/', {
-      body: {
-        person_id: personId,
-        reveal_phone_numbers: true,
-        do_contacts_enrichment: true,
-      },
+    console.log('Looking up phone numbers for person:', personId);
+    const results = await foragerFetch('/person_contacts_lookup/phone_numbers/', {
+      body: { person_id: personId },
     });
 
-    if (!data) return null;
+    console.log('Phone lookup response:', JSON.stringify(results, null, 2));
+
+    // Handle different response formats
+    if (Array.isArray(results)) {
+      return results.map((p: { phone_number?: string; number?: string; type?: string }) => ({
+        phone_number: p.phone_number || p.number || '',
+        type: p.type,
+      })).filter(p => p.phone_number);
+    }
+
+    return [];
+  } catch (error) {
+    console.error('Error looking up phone numbers:', error);
+    return [];
+  }
+}
+
+export async function enrichPerson(personId: string): Promise<EnrichedPerson | null> {
+  try {
+    // Convert to number since API expects integer person_id
+    const numericPersonId = parseInt(personId, 10);
+    console.log('Enriching person:', personId, '-> numeric:', numericPersonId);
+
+    // Get person details and phone numbers in parallel
+    const [personData, phoneNumbers] = await Promise.all([
+      foragerFetch('/person_detail_lookup/', {
+        body: { person_id: numericPersonId },
+      }),
+      lookupPhoneNumbers(numericPersonId),
+    ]);
+
+    console.log('Person data for', personId, ':', personData?.full_name);
+    console.log('Phone numbers found:', phoneNumbers);
+
+    if (!personData) return null;
 
     return {
-      id: data.id || personId,
-      full_name: data.full_name || '',
-      first_name: data.first_name || '',
-      last_name: data.last_name || '',
-      photo: data.photo || '',
-      headline: data.headline || '',
-      linkedin_url: data.linkedin_url || data.linkedin_info?.public_profile_url || '',
-      work_emails: data.work_emails || [],
-      personal_emails: data.personal_emails || [],
-      phone_numbers: data.phone_numbers || [],
-      skills: data.skills || [],
-      location: data.location || '',
-      summary: data.summary || '',
-      current_role: data.current_role || null,
+      id: personData.id || personId,
+      full_name: personData.full_name || '',
+      first_name: personData.first_name || '',
+      last_name: personData.last_name || '',
+      photo: personData.photo || '',
+      headline: personData.headline || '',
+      linkedin_url: personData.linkedin_url || personData.linkedin_info?.public_profile_url || '',
+      work_emails: personData.work_emails || [],
+      personal_emails: personData.personal_emails || [],
+      phone_numbers: phoneNumbers,
+      skills: personData.skills || [],
+      location: personData.location?.name || '',
+      summary: personData.summary || personData.description || '',
+      current_role: personData.current_role || null,
     };
   } catch (error) {
     console.error('Error enriching person:', error);
@@ -172,10 +207,19 @@ export async function enrichPerson(personId: string): Promise<EnrichedPerson | n
 export async function enrichMultiplePeople(personIds: string[]): Promise<EnrichedPerson[]> {
   const enrichedPeople: EnrichedPerson[] = [];
 
+  // Filter out empty or invalid IDs
+  const validIds = personIds.filter(id => id && id !== '' && id !== 'undefined' && !isNaN(parseInt(id, 10)));
+  console.log('Valid person IDs to enrich:', validIds);
+
+  if (validIds.length === 0) {
+    console.log('No valid person IDs to enrich');
+    return [];
+  }
+
   // Process in parallel with a concurrency limit
   const batchSize = 5;
-  for (let i = 0; i < personIds.length; i += batchSize) {
-    const batch = personIds.slice(i, i + batchSize);
+  for (let i = 0; i < validIds.length; i += batchSize) {
+    const batch = validIds.slice(i, i + batchSize);
     const results = await Promise.allSettled(batch.map(id => enrichPerson(id)));
 
     for (const result of results) {
