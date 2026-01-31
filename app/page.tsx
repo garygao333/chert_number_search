@@ -1,65 +1,370 @@
-import Image from "next/image";
+'use client';
+
+import { useState, useCallback, useRef } from 'react';
+import SearchFilters from '@/components/SearchFilters';
+import PersonList from '@/components/PersonList';
+import LeadList from '@/components/LeadList';
+import {
+  SearchFilters as SearchFiltersType,
+  PersonSearchResult,
+  Lead,
+  EnrichedPerson,
+  ContactRecord,
+} from '@/lib/types';
 
 export default function Home() {
+  // Search state
+  const [filters, setFilters] = useState<SearchFiltersType>({});
+  const [results, setResults] = useState<PersonSearchResult[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+
+  // Cache for pagination (back button)
+  const pageCache = useRef<Map<string, Map<number, PersonSearchResult[]>>>(new Map());
+  const lastFiltersKey = useRef<string>('');
+
+  // Selection state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // Lead list state
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [isEnriching, setIsEnriching] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+
+  // Get cache key from filters
+  const getFiltersKey = (f: SearchFiltersType): string => {
+    return JSON.stringify(f);
+  };
+
+  // Search function
+  const performSearch = useCallback(async (page: number, isNewSearch: boolean = false) => {
+    const filtersKey = getFiltersKey(filters);
+
+    // Check cache first (for back navigation)
+    if (!isNewSearch && pageCache.current.has(filtersKey)) {
+      const filterCache = pageCache.current.get(filtersKey)!;
+      if (filterCache.has(page)) {
+        setResults(filterCache.get(page)!);
+        setCurrentPage(page);
+        return;
+      }
+    }
+
+    setIsSearching(true);
+
+    try {
+      const response = await fetch('/api/forager/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filters, page, pageSize: 10 }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Search failed');
+      }
+
+      const data = await response.json();
+
+      // Initialize cache for new search
+      if (isNewSearch || filtersKey !== lastFiltersKey.current) {
+        pageCache.current.set(filtersKey, new Map());
+        lastFiltersKey.current = filtersKey;
+        setSelectedIds(new Set());
+      }
+
+      // Cache the results
+      const filterCache = pageCache.current.get(filtersKey)!;
+      filterCache.set(page, data.results);
+
+      setResults(data.results);
+      setCurrentPage(page);
+      setTotalCount(data.total_count);
+      setHasMore(data.has_more);
+    } catch (error) {
+      console.error('Search error:', error);
+      alert('Search failed. Please try again.');
+    } finally {
+      setIsSearching(false);
+    }
+  }, [filters]);
+
+  // Handle search button click
+  const handleSearch = () => {
+    setCurrentPage(1);
+    performSearch(1, true);
+  };
+
+  // Handle pagination
+  const handleNextPage = () => {
+    performSearch(currentPage + 1, false);
+  };
+
+  const handlePreviousPage = () => {
+    if (currentPage > 1) {
+      performSearch(currentPage - 1, false);
+    }
+  };
+
+  // Check if previous page is cached
+  const hasPreviousPage = currentPage > 1;
+
+  // Selection handlers
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const selectAll = () => {
+    setSelectedIds(new Set(results.map((r) => r.person.id)));
+  };
+
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+  };
+
+  // Confirm selection - enrich and add to lead list
+  const handleConfirmSelection = async () => {
+    if (selectedIds.size === 0) return;
+
+    setIsEnriching(true);
+
+    try {
+      const personIds = Array.from(selectedIds);
+      const response = await fetch('/api/forager/enrich', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ personIds }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Enrichment failed');
+      }
+
+      const data = await response.json();
+      const enrichedPeople: EnrichedPerson[] = data.enrichedPeople;
+
+      // Get the original results for role information
+      const resultMap = new Map<string, PersonSearchResult>();
+      results.forEach((r) => resultMap.set(r.person.id, r));
+
+      // Convert enriched people to leads
+      const newLeads: Lead[] = enrichedPeople
+        .filter((p) => p.phone_numbers && p.phone_numbers.length > 0)
+        .map((p) => {
+          const originalResult = resultMap.get(p.id);
+          return {
+            id: p.id,
+            full_name: p.full_name,
+            role_title: originalResult?.role.title || p.current_role?.title || '',
+            company_name: originalResult?.role.company_name || p.current_role?.company_name || '',
+            phone_number: p.phone_numbers![0].phone_number,
+            email: p.work_emails?.[0] || p.personal_emails?.[0] || '',
+            linkedin_url: p.linkedin_url,
+            location: p.location,
+            headline: p.headline,
+            added_at: new Date().toISOString(),
+          };
+        });
+
+      if (newLeads.length === 0) {
+        alert('No phone numbers found for the selected profiles.');
+        return;
+      }
+
+      // Add to leads (avoid duplicates)
+      setLeads((prev) => {
+        const existingIds = new Set(prev.map((l) => l.id));
+        const uniqueNewLeads = newLeads.filter((l) => !existingIds.has(l.id));
+        return [...prev, ...uniqueNewLeads];
+      });
+
+      // Save to Supabase
+      const searchQuery = Object.entries(filters)
+        .filter(([, v]) => v)
+        .map(([k, v]) => `${k}:${v}`)
+        .join(', ');
+
+      const contacts: ContactRecord[] = newLeads.map((lead) => ({
+        phone_number: lead.phone_number,
+        full_name: lead.full_name,
+        role: lead.role_title,
+        company: lead.company_name,
+        headline: lead.headline,
+        location: lead.location,
+        linkedin_url: lead.linkedin_url,
+        source: 'forager',
+        source_id: lead.id,
+        raw_data: {
+          email: lead.email,
+          search_query: searchQuery,
+          added_at: lead.added_at,
+        },
+      }));
+
+      await fetch('/api/contacts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contacts }),
+      });
+
+      // Clear selection
+      setSelectedIds(new Set());
+
+      alert(`Added ${newLeads.length} leads with phone numbers to the list.`);
+    } catch (error) {
+      console.error('Enrichment error:', error);
+      alert('Failed to enrich profiles. Please try again.');
+    } finally {
+      setIsEnriching(false);
+    }
+  };
+
+  // Lead list handlers
+  const removeLead = (id: string) => {
+    setLeads((prev) => prev.filter((l) => l.id !== id));
+  };
+
+  const clearLeads = () => {
+    if (confirm('Are you sure you want to clear all leads?')) {
+      setLeads([]);
+    }
+  };
+
+  // Export to CSV
+  const exportCSV = () => {
+    if (leads.length === 0) return;
+
+    setIsExporting(true);
+
+    try {
+      // CSV headers
+      const headers = ['Name', 'Role', 'Company', 'Phone', 'Email', 'LinkedIn', 'Location', 'Headline', 'Added At'];
+
+      // CSV rows
+      const rows = leads.map((lead) => [
+        lead.full_name,
+        lead.role_title,
+        lead.company_name,
+        lead.phone_number,
+        lead.email || '',
+        lead.linkedin_url || '',
+        lead.location || '',
+        lead.headline || '',
+        lead.added_at,
+      ]);
+
+      // Escape CSV values
+      const escapeCSV = (value: string) => {
+        if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+          return `"${value.replace(/"/g, '""')}"`;
+        }
+        return value;
+      };
+
+      // Build CSV content
+      const csvContent = [
+        headers.join(','),
+        ...rows.map((row) => row.map(escapeCSV).join(',')),
+      ].join('\n');
+
+      // Download
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `leads_${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Export error:', error);
+      alert('Failed to export CSV. Please try again.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <div className="h-screen flex flex-col bg-gray-100">
+      {/* Header */}
+      <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-gray-900">Forager Lead Search</h1>
+          <p className="text-sm text-gray-500">Search and enrich contacts with phone numbers</p>
+        </div>
+
+        {/* Confirm Selection Button */}
+        <button
+          onClick={handleConfirmSelection}
+          disabled={selectedIds.size === 0 || isEnriching}
+          className="px-6 py-2.5 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+        >
+          {isEnriching ? (
+            <>
+              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              Enriching...
+            </>
+          ) : (
+            <>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              Confirm Selection ({selectedIds.size})
+            </>
+          )}
+        </button>
+      </header>
+
+      {/* Main Content */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Sidebar */}
+        <SearchFilters
+          filters={filters}
+          onFiltersChange={setFilters}
+          onSearch={handleSearch}
+          isLoading={isSearching}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+
+        {/* Results */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <PersonList
+            results={results}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelect}
+            onSelectAll={selectAll}
+            onClearSelection={clearSelection}
+            currentPage={currentPage}
+            hasMore={hasMore}
+            hasPrevious={hasPreviousPage}
+            onNextPage={handleNextPage}
+            onPreviousPage={handlePreviousPage}
+            isLoading={isSearching}
+            totalCount={totalCount}
+          />
+
+          {/* Lead List */}
+          <LeadList
+            leads={leads}
+            onRemoveLead={removeLead}
+            onClearLeads={clearLeads}
+            onExportCSV={exportCSV}
+            isExporting={isExporting}
+          />
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+      </div>
     </div>
   );
 }
