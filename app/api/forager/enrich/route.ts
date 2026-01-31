@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     console.log('Enrich API called with personIds:', personIds);
     const enrichedPeople = await enrichMultiplePeople(personIds);
     console.log('Enriched people count:', enrichedPeople.length);
-    console.log('People with phones:', enrichedPeople.filter(p => p.phone_numbers?.length > 0).length);
+    console.log('People with phones:', enrichedPeople.filter(p => (p.phone_numbers?.length ?? 0) > 0).length);
 
     // Filter to only include people with phone numbers
     const peopleWithPhones = enrichedPeople.filter(
