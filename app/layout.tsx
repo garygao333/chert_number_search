@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Forager Lead Search",
+  title: "Chert Number Search",
   description: "Internal tool for searching and enriching leads with phone numbers",
 };
 
