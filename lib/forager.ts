@@ -38,8 +38,7 @@ export async function searchPeople(
   // Build search query based on filters
   const searchParams: Record<string, unknown> = {
     role_is_current: true,
-    limit: pageSize,
-    offset: (page - 1) * pageSize,
+    page: page,
   };
 
   // Person filters
@@ -92,9 +91,11 @@ export async function searchPeople(
       organization?: ApiOrganization;
     }
 
-    const results: PersonSearchResult[] = (data.search_results || []).map((item: ApiResult) => ({
+    // Use combination of role ID + person ID + index for uniqueness
+    const results: PersonSearchResult[] = (data.search_results || []).map((item: ApiResult, index: number) => ({
       person: {
-        id: String(item.person?.id || item.id || ''),
+        id: `${item.id}-${item.person?.id}-${page}-${index}`,  // Unique key combining multiple fields
+        forager_person_id: String(item.person?.id || ''),  // Actual person ID for API calls
         full_name: item.person?.full_name || '',
         first_name: item.person?.first_name || '',
         last_name: item.person?.last_name || '',
@@ -103,7 +104,7 @@ export async function searchPeople(
         linkedin_url: item.person?.linkedin_info?.public_profile_url || '',
       },
       role: {
-        title: item.title || '',
+        title: item.title || item.person?.headline || '',
         company_name: item.organization?.name || '',
         company_id: String(item.organization?.id || ''),
         is_current: true,

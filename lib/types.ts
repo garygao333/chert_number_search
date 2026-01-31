@@ -17,7 +17,8 @@ export interface ForagerSearchParams {
 }
 
 export interface PersonBasic {
-  id: string;
+  id: string;  // Unique key for React (composite)
+  forager_person_id: string;  // Actual Forager person ID for API calls
   full_name: string;
   first_name?: string;
   last_name?: string;

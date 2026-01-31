@@ -138,11 +138,14 @@ export default function Home() {
     setIsEnriching(true);
 
     try {
-      const personIds = Array.from(selectedIds);
+      // Get selected results and extract forager_person_ids for API
+      const selectedResults = results.filter(r => selectedIds.has(r.person.id));
+      const foragerPersonIds = [...new Set(selectedResults.map(r => r.person.forager_person_id))];
+
       const response = await fetch('/api/forager/enrich', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ personIds }),
+        body: JSON.stringify({ personIds: foragerPersonIds }),
       });
 
       if (!response.ok) {
@@ -152,9 +155,9 @@ export default function Home() {
       const data = await response.json();
       const enrichedPeople: EnrichedPerson[] = data.enrichedPeople;
 
-      // Get the original results for role information
+      // Get the original results for role information (map by forager_person_id)
       const resultMap = new Map<string, PersonSearchResult>();
-      results.forEach((r) => resultMap.set(r.person.id, r));
+      selectedResults.forEach((r) => resultMap.set(r.person.forager_person_id, r));
 
       // Convert enriched people to leads
       const newLeads: Lead[] = enrichedPeople
