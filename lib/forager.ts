@@ -30,35 +30,12 @@ async function foragerFetch(endpoint: string, options: ForagerApiOptions = {}) {
   return response.json();
 }
 
-// Lookup industry ID by name
-async function lookupIndustryId(industryName: string): Promise<number | null> {
-  try {
-    const url = `${FORAGER_API_URL}/api/${FORAGER_ACCOUNT_ID}/datastorage/industries/?q=${encodeURIComponent(industryName)}`;
-
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-API-KEY': FORAGER_API_KEY,
-      },
-    });
-
-    if (!response.ok) {
-      console.error('Industry lookup failed:', response.status);
-      return null;
-    }
-
-    const data = await response.json();
-    // Return the first matching industry ID
-    if (data.results && data.results.length > 0) {
-      console.log('Found industry:', data.results[0]);
-      return data.results[0].id;
-    }
-    return null;
-  } catch (error) {
-    console.error('Industry lookup error:', error);
-    return null;
-  }
+// Sanitize search string - remove special characters and convert spaces to underscores
+function sanitizeSearchString(str: string): string {
+  return str
+    .replace(/[&|!(){}[\]^"~*?:\\]/g, '') // Remove special chars
+    .replace(/\s+/g, '_') // Convert spaces to underscores
+    .trim();
 }
 
 export async function searchPeople(
@@ -72,29 +49,25 @@ export async function searchPeople(
     page: page,
   };
 
-  // Person filters - lookup industry ID if provided
+  // Person filters - use text-based search via headline/description
   if (filters.personIndustry) {
-    const industryId = await lookupIndustryId(filters.personIndustry);
-    if (industryId) {
-      searchParams.person_industries = [industryId];
-    }
+    // Search in person headline for industry keywords
+    searchParams.person_headline = sanitizeSearchString(filters.personIndustry);
   }
   if (filters.personLocation) {
     searchParams.person_locations = [filters.personLocation];
   }
 
-  // Company/Organization filters - lookup industry ID if provided
+  // Company/Organization filters - use description for industry keywords
   if (filters.companyIndustry) {
-    const industryId = await lookupIndustryId(filters.companyIndustry);
-    if (industryId) {
-      searchParams.org_industries = [industryId];
-    }
+    // Search in organization description for industry keywords
+    searchParams.organization_description = sanitizeSearchString(filters.companyIndustry);
   }
   if (filters.companyLocation) {
     searchParams.org_locations = [filters.companyLocation];
   }
   if (filters.companyKeywords) {
-    searchParams.org_name = filters.companyKeywords;
+    searchParams.org_name = sanitizeSearchString(filters.companyKeywords);
   }
 
   try {

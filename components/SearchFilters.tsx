@@ -47,10 +47,10 @@ export default function SearchFilters({
 
         <div className="space-y-3">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Industry</label>
+            <label className="block text-xs text-gray-500 mb-1">Headline Keywords</label>
             <input
               type="text"
-              placeholder="e.g., Technology, Finance"
+              placeholder="e.g., Recruiter, Sales"
               value={filters.personIndustry || ''}
               onChange={(e) => handleInputChange('personIndustry', e.target.value)}
               onKeyDown={handleKeyDown}
@@ -83,10 +83,10 @@ export default function SearchFilters({
 
         <div className="space-y-3">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Industry</label>
+            <label className="block text-xs text-gray-500 mb-1">Description Keywords</label>
             <input
               type="text"
-              placeholder="e.g., SaaS, Healthcare"
+              placeholder="e.g., Staffing, Recruiting"
               value={filters.companyIndustry || ''}
               onChange={(e) => handleInputChange('companyIndustry', e.target.value)}
               onKeyDown={handleKeyDown}
