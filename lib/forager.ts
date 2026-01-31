@@ -183,7 +183,7 @@ export async function enrichPerson(personId: string): Promise<EnrichedPerson | n
     if (!personData) return null;
 
     return {
-      id: personData.id || personId,
+      id: String(personData.id || personId),  // Ensure ID is string for consistent mapping
       full_name: personData.full_name || '',
       first_name: personData.first_name || '',
       last_name: personData.last_name || '',
