@@ -302,7 +302,7 @@ export default function Home() {
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Forager Lead Search</h1>
+          <h1 className="text-xl font-bold text-gray-900">Chert Number Search</h1>
           <p className="text-sm text-gray-500">Search and enrich contacts with phone numbers</p>
         </div>
 
