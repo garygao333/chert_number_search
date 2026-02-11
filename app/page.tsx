@@ -250,11 +250,12 @@ export default function Home() {
 
     try {
       // CSV headers
-      const headers = ['Name', 'Role', 'Company', 'Phone', 'Email', 'LinkedIn', 'Location', 'Headline', 'Added At'];
+      const headers = ['Name', 'Source', 'Role', 'Company', 'Phone', 'Email', 'LinkedIn', 'Location', 'Headline', 'Added At'];
 
       // CSV rows
       const rows = leads.map((lead) => [
         lead.full_name,
+        'Forager',
         lead.role_title,
         lead.company_name,
         lead.phone_number,

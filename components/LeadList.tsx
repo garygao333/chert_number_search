@@ -77,6 +77,7 @@ export default function LeadList({
           <thead className="bg-gray-50 sticky top-0">
             <tr>
               <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Source</th>
               <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
               <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Company</th>
               <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
@@ -103,6 +104,11 @@ export default function LeadList({
                       </a>
                     )}
                   </div>
+                </td>
+                <td className="px-4 py-3 whitespace-nowrap">
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                    Forager
+                  </span>
                 </td>
                 <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{lead.role_title || '-'}</td>
                 <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{lead.company_name || '-'}</td>
