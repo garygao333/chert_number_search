@@ -52,7 +52,7 @@ export async function GET() {
     const { data, error } = await supabase
       .from('contacts')
       .select('*')
-      .eq('source', 'forager')
+      .in('source', ['forager', 'aviato'])
       .order('created_at', { ascending: false });
 
     if (error) {

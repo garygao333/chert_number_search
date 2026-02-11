@@ -6,6 +6,8 @@ import PersonList from '@/components/PersonList';
 import LeadList from '@/components/LeadList';
 import {
   SearchFilters as SearchFiltersType,
+  AviatoSearchFilters,
+  DataSource,
   PersonSearchResult,
   Lead,
   EnrichedPerson,
@@ -13,8 +15,16 @@ import {
 } from '@/lib/types';
 
 export default function Home() {
-  // Search state
+  // Source state
+  const [activeSource, setActiveSource] = useState<DataSource>('forager');
+
+  // Forager search state
   const [filters, setFilters] = useState<SearchFiltersType>({});
+
+  // Aviato search state
+  const [aviatoFilters, setAviatoFilters] = useState<AviatoSearchFilters>({});
+
+  // Search results state
   const [results, setResults] = useState<PersonSearchResult[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
@@ -34,13 +44,25 @@ export default function Home() {
   const [isExporting, setIsExporting] = useState(false);
 
   // Get cache key from filters
-  const getFiltersKey = (f: SearchFiltersType): string => {
-    return JSON.stringify(f);
+  const getFiltersKey = (source: DataSource, f: SearchFiltersType | AviatoSearchFilters): string => {
+    return `${source}:${JSON.stringify(f)}`;
+  };
+
+  // Handle source change — clear results/selection but keep leads
+  const handleSourceChange = (source: DataSource) => {
+    if (source === activeSource) return;
+    setActiveSource(source);
+    setResults([]);
+    setSelectedIds(new Set());
+    setCurrentPage(1);
+    setTotalCount(0);
+    setHasMore(false);
   };
 
   // Search function
   const performSearch = useCallback(async (page: number, isNewSearch: boolean = false) => {
-    const filtersKey = getFiltersKey(filters);
+    const currentFilters = activeSource === 'forager' ? filters : aviatoFilters;
+    const filtersKey = getFiltersKey(activeSource, currentFilters);
 
     // Check cache first (for back navigation)
     if (!isNewSearch && pageCache.current.has(filtersKey)) {
@@ -55,10 +77,12 @@ export default function Home() {
     setIsSearching(true);
 
     try {
-      const response = await fetch('/api/forager/search', {
+      const apiUrl = activeSource === 'forager' ? '/api/forager/search' : '/api/aviato/search';
+
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filters, page, pageSize: 10 }),
+        body: JSON.stringify({ filters: currentFilters, page, pageSize: 10 }),
       });
 
       if (!response.ok) {
@@ -88,7 +112,7 @@ export default function Home() {
     } finally {
       setIsSearching(false);
     }
-  }, [filters]);
+  }, [activeSource, filters, aviatoFilters]);
 
   // Handle search button click
   const handleSearch = () => {
@@ -138,22 +162,45 @@ export default function Home() {
     setIsEnriching(true);
 
     try {
-      // Get selected results and extract forager_person_ids for API
+      // Get selected results and group by source
       const selectedResults = results.filter(r => selectedIds.has(r.person.id));
-      const foragerPersonIds = [...new Set(selectedResults.map(r => r.person.forager_person_id))];
 
-      const response = await fetch('/api/forager/enrich', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ personIds: foragerPersonIds }),
-      });
+      const foragerResults = selectedResults.filter(r => r.person.source === 'forager');
+      const aviatoResults = selectedResults.filter(r => r.person.source === 'aviato');
 
-      if (!response.ok) {
-        throw new Error('Enrichment failed');
+      // Enrich from each source in parallel
+      const enrichPromises: Promise<EnrichedPerson[]>[] = [];
+
+      if (foragerResults.length > 0) {
+        const foragerPersonIds = [...new Set(foragerResults.map(r => r.person.forager_person_id))];
+        enrichPromises.push(
+          fetch('/api/forager/enrich', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ personIds: foragerPersonIds }),
+          }).then(res => {
+            if (!res.ok) throw new Error('Forager enrichment failed');
+            return res.json();
+          }).then(data => data.enrichedPeople as EnrichedPerson[])
+        );
       }
 
-      const data = await response.json();
-      const enrichedPeople: EnrichedPerson[] = data.enrichedPeople;
+      if (aviatoResults.length > 0) {
+        const aviatoPersonIds = [...new Set(aviatoResults.map(r => r.person.forager_person_id))];
+        enrichPromises.push(
+          fetch('/api/aviato/enrich', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ personIds: aviatoPersonIds }),
+          }).then(res => {
+            if (!res.ok) throw new Error('Aviato enrichment failed');
+            return res.json();
+          }).then(data => data.enrichedPeople as EnrichedPerson[])
+        );
+      }
+
+      const enrichedArrays = await Promise.all(enrichPromises);
+      const enrichedPeople = enrichedArrays.flat();
 
       // Get the original results for role information (map by forager_person_id)
       const resultMap = new Map<string, PersonSearchResult>();
@@ -175,6 +222,7 @@ export default function Home() {
             location: p.location,
             headline: p.headline,
             added_at: new Date().toISOString(),
+            source: p.source,
           };
         });
 
@@ -191,7 +239,8 @@ export default function Home() {
       });
 
       // Save to Supabase
-      const searchQuery = Object.entries(filters)
+      const currentFilters = activeSource === 'forager' ? filters : aviatoFilters;
+      const searchQuery = Object.entries(currentFilters)
         .filter(([, v]) => v)
         .map(([k, v]) => `${k}:${v}`)
         .join(', ');
@@ -204,7 +253,7 @@ export default function Home() {
         headline: lead.headline,
         location: lead.location,
         linkedin_url: lead.linkedin_url,
-        source: 'forager',
+        source: lead.source,
         source_id: lead.id,
         raw_data: {
           email: lead.email,
@@ -255,7 +304,7 @@ export default function Home() {
       // CSV rows
       const rows = leads.map((lead) => [
         lead.full_name,
-        'Forager',
+        lead.source === 'aviato' ? 'Aviato' : 'Forager',
         lead.role_title,
         lead.company_name,
         lead.phone_number,
@@ -340,6 +389,10 @@ export default function Home() {
           onFiltersChange={setFilters}
           onSearch={handleSearch}
           isLoading={isSearching}
+          activeSource={activeSource}
+          onSourceChange={handleSourceChange}
+          aviatoFilters={aviatoFilters}
+          onAviatoFiltersChange={setAviatoFilters}
         />
 
         {/* Results */}

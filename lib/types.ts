@@ -1,3 +1,6 @@
+// Data source types
+export type DataSource = 'forager' | 'aviato';
+
 // Forager API Types
 
 export interface SearchFilters {
@@ -10,6 +13,14 @@ export interface SearchFilters {
   companyKeywords?: string;
 }
 
+export interface AviatoSearchFilters {
+  headline?: string;
+  country?: string;
+  companyName?: string;
+  skills?: string;
+  linkedinConnections?: number;
+}
+
 export interface ForagerSearchParams {
   filters: SearchFilters;
   page: number;
@@ -18,13 +29,14 @@ export interface ForagerSearchParams {
 
 export interface PersonBasic {
   id: string;  // Unique key for React (composite)
-  forager_person_id: string;  // Actual Forager person ID for API calls
+  forager_person_id: string;  // Actual Forager/Aviato person ID for API calls
   full_name: string;
   first_name?: string;
   last_name?: string;
   photo?: string;
   headline?: string;
   linkedin_url?: string;
+  source: DataSource;
 }
 
 export interface RoleInfo {
@@ -71,6 +83,7 @@ export interface EnrichedPerson {
   location?: string;
   summary?: string;
   current_role?: RoleInfo;
+  source: DataSource;
 }
 
 // Lead list types
@@ -85,6 +98,7 @@ export interface Lead {
   location?: string;
   headline?: string;
   added_at: string;
+  source: DataSource;
 }
 
 // Supabase contact record (matches existing table schema)

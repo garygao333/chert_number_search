@@ -153,8 +153,12 @@ export default function PersonList({
 
                 {/* Source */}
                 <div className="flex-shrink-0">
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                    Forager
+                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                    result.person.source === 'aviato'
+                      ? 'bg-green-100 text-green-800'
+                      : 'bg-blue-100 text-blue-800'
+                  }`}>
+                    {result.person.source === 'aviato' ? 'Aviato' : 'Forager'}
                   </span>
                 </div>
               </div>

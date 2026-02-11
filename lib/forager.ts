@@ -116,6 +116,7 @@ export async function searchPeople(
         photo: item.person?.photo || '',
         headline: item.person?.headline || '',
         linkedin_url: item.person?.linkedin_info?.public_profile_url || '',
+        source: 'forager',
       },
       role: {
         title: item.title || item.person?.headline || '',
@@ -197,6 +198,7 @@ export async function enrichPerson(personId: string): Promise<EnrichedPerson | n
       location: personData.location?.name || '',
       summary: personData.summary || personData.description || '',
       current_role: personData.current_role || null,
+      source: 'forager',
     };
   } catch (error) {
     console.error('Error enriching person:', error);
