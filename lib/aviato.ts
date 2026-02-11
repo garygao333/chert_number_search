@@ -183,16 +183,8 @@ export async function searchPeople(
       return { results: [], total_count: 0, page, page_size: pageSize, has_more: false };
     }
 
-    // Step 2: Enrich all results in parallel to get headline/title/company
-    const enrichedItems = await Promise.allSettled(
-      items.map(item =>
-        aviatoFetch('/person/enrich', {
-          method: 'GET',
-          params: { id: item.id },
-        })
-      )
-    );
-
+    // Step 2: Enrich results in batches to get headline/title/company
+    // Batch by 3 to avoid rate limiting
     interface EnrichedItem {
       id: string;
       fullName?: string;
@@ -205,13 +197,31 @@ export async function searchPeople(
       experienceList?: AviatoExperience[];
     }
 
+    const enrichedMap = new Map<number, EnrichedItem>();
+    const batchSize = 3;
+    for (let i = 0; i < items.length; i += batchSize) {
+      const batch = items.slice(i, i + batchSize);
+      const batchResults = await Promise.allSettled(
+        batch.map(item =>
+          aviatoFetch('/person/enrich', {
+            method: 'GET',
+            params: { id: item.id },
+          })
+        )
+      );
+      batchResults.forEach((result, batchIndex) => {
+        const globalIndex = i + batchIndex;
+        if (result.status === 'fulfilled') {
+          enrichedMap.set(globalIndex, result.value);
+        } else {
+          console.error(`Enrich failed for ${items[globalIndex].id}:`, result.reason?.message || result.reason);
+        }
+      });
+    }
+
     const results: PersonSearchResult[] = items.map((item, index) => {
       // Use enriched data if available, fall back to search data
-      let enriched: EnrichedItem | null = null;
-      const enrichResult = enrichedItems[index];
-      if (enrichResult.status === 'fulfilled') {
-        enriched = enrichResult.value;
-      }
+      const enriched: EnrichedItem | null = enrichedMap.get(index) || null;
 
       const role = getCurrentRole(enriched?.experienceList);
       const linkedinUrl = normalizeUrl(enriched?.URLs?.linkedin || item.URLs?.linkedin || '');
