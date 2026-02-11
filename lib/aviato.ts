@@ -98,6 +98,9 @@ export async function searchPeople(
   if (filters.linkedinConnections) {
     params.minLinkedinConnections = String(filters.linkedinConnections);
   }
+  if (filters.experienceDescription) {
+    params.currentExperienceDescriptions = filters.experienceDescription;
+  }
 
   try {
     // Step 1: Search to get matching person IDs

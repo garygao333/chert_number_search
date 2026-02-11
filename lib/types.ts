@@ -19,6 +19,7 @@ export interface AviatoSearchFilters {
   companyName?: string;
   skills?: string;
   linkedinConnections?: number;
+  experienceDescription?: string;
 }
 
 export interface ForagerSearchParams {

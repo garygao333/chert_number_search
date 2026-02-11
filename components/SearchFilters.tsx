@@ -217,6 +217,18 @@ export default function SearchFilters({
           </div>
 
           <div>
+            <label className="block text-xs text-gray-500 mb-1">Role Description Keywords</label>
+            <input
+              type="text"
+              placeholder="e.g., recruiting agency, staffing"
+              value={aviatoFilters.experienceDescription || ''}
+              onChange={(e) => handleAviatoInputChange('experienceDescription', e.target.value)}
+              onKeyDown={handleKeyDown}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+            />
+          </div>
+
+          <div>
             <label className="block text-xs text-gray-500 mb-1">Min LinkedIn Connections</label>
             <input
               type="number"
