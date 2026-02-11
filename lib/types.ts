@@ -20,6 +20,15 @@ export interface AviatoSearchFilters {
   skills?: string;
   linkedinConnections?: number;
   experienceDescription?: string;
+  companyIndustry?: string;
+  // Internal: set by API route after company search, not a UI field
+  _companyLinkedinIds?: string[];
+}
+
+export interface CompanyMatch {
+  id: string;
+  name: string;
+  linkedinSlug: string;
 }
 
 export interface ForagerSearchParams {

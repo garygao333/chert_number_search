@@ -1,4 +1,4 @@
-import { AviatoSearchFilters, PersonSearchResult, EnrichedPerson, SearchResponse } from './types';
+import { AviatoSearchFilters, PersonSearchResult, EnrichedPerson, SearchResponse, CompanyMatch } from './types';
 
 const AVIATO_API_URL = process.env.AVIATO_API_URL || 'https://data.api.aviato.co';
 const AVIATO_API_KEY = process.env.AVIATO_API_KEY!;
@@ -72,6 +72,47 @@ function getCurrentRole(experienceList?: AviatoExperience[]): { title: string; c
   };
 }
 
+export async function searchCompaniesByIndustry(industry: string, limit: number = 25): Promise<CompanyMatch[]> {
+  try {
+    const data = await aviatoFetch('/company/search', {
+      body: {
+        dsl: {
+          filters: [
+            { industryList: { operation: 'textcontains', value: industry } },
+          ],
+          limit,
+          offset: 0,
+        },
+      },
+    });
+
+    interface CompanyItem {
+      id: string;
+      name?: string;
+      URLs?: { linkedin?: string };
+    }
+
+    const items: CompanyItem[] = data.items || [];
+
+    return items
+      .map((item) => {
+        const linkedinUrl = item.URLs?.linkedin || '';
+        const slug = linkedinUrl.includes('/company/')
+          ? linkedinUrl.split('/company/')[1]?.replace(/\/$/, '') || ''
+          : '';
+        return {
+          id: item.id,
+          name: item.name || '',
+          linkedinSlug: slug,
+        };
+      })
+      .filter((c) => c.linkedinSlug);
+  } catch (error) {
+    console.error('Error searching Aviato companies:', error);
+    throw error;
+  }
+}
+
 export async function searchPeople(
   filters: AviatoSearchFilters,
   page: number = 1,
@@ -103,11 +144,31 @@ export async function searchPeople(
   }
 
   try {
+    // Build URL manually to support repeated query params for company LinkedIn IDs
+    let searchUrl = `${AVIATO_API_URL}/person/simple/search?${new URLSearchParams(params).toString()}`;
+
+    if (filters._companyLinkedinIds && filters._companyLinkedinIds.length > 0) {
+      const idParams = filters._companyLinkedinIds
+        .map(id => `currentCompanyLinkedinIDs=${encodeURIComponent(id)}`)
+        .join('&');
+      searchUrl += `&${idParams}`;
+    }
+
     // Step 1: Search to get matching person IDs
-    const data = await aviatoFetch('/person/simple/search', {
+    const searchResponse = await fetch(searchUrl, {
       method: 'GET',
-      params,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${AVIATO_API_KEY}`,
+      },
     });
+
+    if (!searchResponse.ok) {
+      const error = await searchResponse.text();
+      throw new Error(`Aviato API error: ${searchResponse.status} - ${error}`);
+    }
+
+    const data = await searchResponse.json();
 
     interface SearchItem {
       id: string;

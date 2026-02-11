@@ -12,6 +12,7 @@ import {
   Lead,
   EnrichedPerson,
   ContactRecord,
+  CompanyMatch,
 } from '@/lib/types';
 
 export default function Home() {
@@ -42,6 +43,9 @@ export default function Home() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [isEnriching, setIsEnriching] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+
+  // Company matches from industry search (for terminal display)
+  const [companyMatches, setCompanyMatches] = useState<CompanyMatch[]>([]);
 
   // Get cache key from filters
   const getFiltersKey = (source: DataSource, f: SearchFiltersType | AviatoSearchFilters): string => {
@@ -106,6 +110,13 @@ export default function Home() {
       setCurrentPage(page);
       setTotalCount(data.total_count);
       setHasMore(data.has_more);
+
+      // Capture company matches from Aviato industry search
+      if (data.companyMatches) {
+        setCompanyMatches(data.companyMatches);
+      } else {
+        setCompanyMatches([]);
+      }
     } catch (error) {
       console.error('Search error:', error);
       alert('Search failed. Please try again.');
@@ -393,6 +404,7 @@ export default function Home() {
           onSourceChange={handleSourceChange}
           aviatoFilters={aviatoFilters}
           onAviatoFiltersChange={setAviatoFilters}
+          companyMatches={companyMatches}
         />
 
         {/* Results */}
