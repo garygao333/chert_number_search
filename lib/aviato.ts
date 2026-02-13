@@ -183,65 +183,27 @@ export async function searchPeople(
       return { results: [], total_count: 0, page, page_size: pageSize, has_more: false };
     }
 
-    // Step 2: Enrich results in batches to get headline/title/company
-    // Batch by 3 to avoid rate limiting
-    interface EnrichedItem {
-      id: string;
-      fullName?: string;
-      firstName?: string;
-      lastName?: string;
-      headline?: string;
-      location?: string;
-      linkedinID?: string;
-      URLs?: { linkedin?: string };
-      experienceList?: AviatoExperience[];
-    }
-
-    const enrichedMap = new Map<number, EnrichedItem>();
-    const batchSize = 3;
-    for (let i = 0; i < items.length; i += batchSize) {
-      const batch = items.slice(i, i + batchSize);
-      const batchResults = await Promise.allSettled(
-        batch.map(item =>
-          aviatoFetch('/person/enrich', {
-            method: 'GET',
-            params: { id: item.id },
-          })
-        )
-      );
-      batchResults.forEach((result, batchIndex) => {
-        const globalIndex = i + batchIndex;
-        if (result.status === 'fulfilled') {
-          enrichedMap.set(globalIndex, result.value);
-        } else {
-          console.error(`Enrich failed for ${items[globalIndex].id}:`, result.reason?.message || result.reason);
-        }
-      });
-    }
-
+    // Map search results directly — no person enrich calls to save credits
+    // Full enrichment (with phone/email) happens during "Confirm Selection"
     const results: PersonSearchResult[] = items.map((item, index) => {
-      // Use enriched data if available, fall back to search data
-      const enriched: EnrichedItem | null = enrichedMap.get(index) || null;
-
-      const role = getCurrentRole(enriched?.experienceList);
-      const linkedinUrl = normalizeUrl(enriched?.URLs?.linkedin || item.URLs?.linkedin || '');
+      const linkedinUrl = normalizeUrl(item.URLs?.linkedin || '');
 
       return {
         person: {
           id: `aviato-${item.id}-${page}-${index}`,
           forager_person_id: String(item.id),
-          full_name: enriched?.fullName || item.fullName || '',
-          first_name: enriched?.firstName || '',
-          last_name: enriched?.lastName || '',
+          full_name: item.fullName || '',
+          first_name: '',
+          last_name: '',
           photo: '',
-          headline: enriched?.headline || '',
+          headline: '',
           linkedin_url: linkedinUrl,
           source: 'aviato' as const,
         },
         role: {
-          title: role?.title || enriched?.headline || '',
-          company_name: role?.companyName || '',
-          company_id: role?.companyId || '',
+          title: '',
+          company_name: '',
+          company_id: '',
           is_current: true,
         },
       };
@@ -309,49 +271,51 @@ async function lookupEmails(personId: string): Promise<{ email: string; type?: s
 }
 
 export async function enrichPerson(personId: string): Promise<EnrichedPerson | null> {
-  try {
-    const [person, phoneNumbers, emails] = await Promise.all([
-      aviatoFetch('/person/enrich', {
-        method: 'GET',
-        params: { id: personId },
-      }),
-      lookupPhoneNumbers(personId),
-      lookupEmails(personId),
-    ]);
+  // Run all 3 calls independently — phone/email use contact credits
+  // and should succeed even if person enrich (person credits) fails
+  const [personResult, phoneNumbers, emails] = await Promise.all([
+    aviatoFetch('/person/enrich', {
+      method: 'GET',
+      params: { id: personId },
+    }).catch((err) => {
+      console.warn(`Person enrich failed for ${personId} (person credits): ${err.message}`);
+      return null;
+    }),
+    lookupPhoneNumbers(personId),
+    lookupEmails(personId),
+  ]);
 
-    if (!person) return null;
+  // If we have no person data AND no phone numbers, nothing useful to return
+  if (!personResult && phoneNumbers.length === 0) return null;
 
-    const role = getCurrentRole(person.experienceList);
+  const person = personResult || {};
+  const role = getCurrentRole(person.experienceList);
 
-    const workEmails = emails.filter(e => e.type === 'work').map(e => e.email);
-    const personalEmails = emails.filter(e => e.type === 'personal').map(e => e.email);
+  const workEmails = emails.filter(e => e.type === 'work').map(e => e.email);
+  const personalEmails = emails.filter(e => e.type === 'personal').map(e => e.email);
 
-    return {
-      id: String(person.id || personId),
-      full_name: person.fullName || `${person.firstName || ''} ${person.lastName || ''}`.trim(),
-      first_name: person.firstName || '',
-      last_name: person.lastName || '',
-      photo: '',
-      headline: person.headline || '',
-      linkedin_url: normalizeUrl(person.URLs?.linkedin || ''),
-      work_emails: workEmails.length > 0 ? workEmails : emails.map(e => e.email),
-      personal_emails: personalEmails,
-      phone_numbers: phoneNumbers.map(p => ({ phone_number: p.phone_number })),
-      skills: person.skills || [],
-      location: person.location || '',
-      summary: person.about || person.headline || '',
-      current_role: role ? {
-        title: role.title,
-        company_name: role.companyName,
-        company_id: role.companyId,
-        is_current: true,
-      } : undefined,
-      source: 'aviato',
-    };
-  } catch (error) {
-    console.error('Error enriching Aviato person:', error);
-    throw error;
-  }
+  return {
+    id: String(person.id || personId),
+    full_name: person.fullName || `${person.firstName || ''} ${person.lastName || ''}`.trim() || '',
+    first_name: person.firstName || '',
+    last_name: person.lastName || '',
+    photo: '',
+    headline: person.headline || '',
+    linkedin_url: normalizeUrl(person.URLs?.linkedin || ''),
+    work_emails: workEmails.length > 0 ? workEmails : emails.map(e => e.email),
+    personal_emails: personalEmails,
+    phone_numbers: phoneNumbers.map(p => ({ phone_number: p.phone_number })),
+    skills: person.skills || [],
+    location: person.location || '',
+    summary: person.about || person.headline || '',
+    current_role: role ? {
+      title: role.title,
+      company_name: role.companyName,
+      company_id: role.companyId,
+      is_current: true,
+    } : undefined,
+    source: 'aviato',
+  };
 }
 
 export async function enrichMultiplePeople(personIds: string[]): Promise<EnrichedPerson[]> {
