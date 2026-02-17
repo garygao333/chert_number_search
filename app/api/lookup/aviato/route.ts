@@ -5,13 +5,27 @@ import { LookupResponse } from '@/lib/lookup-types';
 const AVIATO_API_URL = process.env.AVIATO_API_URL || 'https://data.api.aviato.co';
 const AVIATO_API_KEY = process.env.AVIATO_API_KEY!;
 
+// Check if the returned name reasonably matches the searched name
+function isReasonableMatch(searchName: string, resultName: string): boolean {
+  const normalize = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  const searchParts = normalize(searchName).split(/\s+/);
+  const resultNorm = normalize(resultName);
+
+  if (searchParts.length < 2) return resultNorm.includes(searchParts[0]);
+
+  const firstName = searchParts[0];
+  const lastName = searchParts[searchParts.length - 1];
+
+  return resultNorm.includes(firstName) && resultNorm.includes(lastName);
+}
+
 async function searchByName(fullName: string): Promise<LookupResponse['results'][0]> {
   try {
-    // Step 1: Search by fullName
+    // Step 1: Search by fullName — request a few results so we can pick the best match
     const params = new URLSearchParams({
       fullName,
       page: '1',
-      perPage: '1',
+      perPage: '5',
     });
 
     const searchResponse = await fetch(`${AVIATO_API_URL}/person/simple/search?${params.toString()}`, {
@@ -34,7 +48,15 @@ async function searchByName(fullName: string): Promise<LookupResponse['results']
       return { fullName, phoneNumbers: [], status: 'not_found' };
     }
 
-    const person = items[0];
+    // Find the first result that reasonably matches the searched name
+    const person = items.find((item: { fullName?: string }) =>
+      isReasonableMatch(fullName, item.fullName || '')
+    );
+
+    if (!person) {
+      return { fullName, phoneNumbers: [], status: 'not_found' };
+    }
+
     const personId = String(person.id);
 
     // Step 2: Enrich to get phone/email
